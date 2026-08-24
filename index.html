@@ -730,6 +730,7 @@ async function init() {
         video.style.maxWidth = "400px";
         video.style.borderRadius = "14px";
         video.style.display = "block";
+        video.style.transform = "scaleX(-1)";
 
         document
             .getElementById("webcam-container")
@@ -1033,17 +1034,21 @@ function recognizeGesture(lm) {
     */
 
     if (
-        !indexExtended &&
-        !middleExtended &&
-        !ringExtended &&
-        !pinkyExtended
-    ) {
+    !indexExtended &&
+    !middleExtended &&
+    !ringExtended &&
+    !pinkyExtended &&
+    distance(indexTip, wrist) < distance(indexPIP, wrist) * 1.08 &&
+    distance(middleTip, wrist) < distance(middlePIP, wrist) * 1.08 &&
+    distance(ringTip, wrist) < distance(ringPIP, wrist) * 1.08 &&
+    distance(pinkyTip, wrist) < distance(pinkyPIP, wrist) * 1.08
+) {
 
-        return {
-            name: "Closed Fist",
-            confidence: 0.90
-        };
-    }
+    return {
+        name: "Closed Fist",
+        confidence: 0.90
+    };
+}
 
 
     return null;
@@ -1134,8 +1139,6 @@ function handleGesture(
 
         video.pause();
 
-        video.currentTime =
-            0;
 
 
     } else if (
