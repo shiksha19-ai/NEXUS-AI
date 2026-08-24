@@ -949,17 +949,18 @@ function recognizeGesture(lm) {
     */
 
     if (
-        indexExtended &&
-        middleExtended &&
-        ringExtended &&
-        pinkyExtended
-    ) {
+    indexExtended &&
+    middleExtended &&
+    ringExtended &&
+    pinkyExtended &&
+    thumbExtended
+) {
 
-        return {
-            name: "Open Palm",
-            confidence: 0.95
-        };
-    }
+    return {
+        name: "Open Palm",
+        confidence: 0.95
+    };
+}
 
 
     /*
@@ -1153,13 +1154,13 @@ if (candidateCount < REQUIRED_FRAMES) {
 
 
     } else if (
-        g.includes("closed") &&
-        g.includes("fist")
-    ) {
+    g.includes("closed") &&
+    g.includes("fist")
+) {
 
-        video.pause();
+    video.pause();
 
-
+    video.currentTime = 0;
 
     } else if (
         g.includes("thumb") &&
