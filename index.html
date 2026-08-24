@@ -684,6 +684,10 @@ let running = false;
 
 let lastGesture = "";
 let lastActionTime = 0;
+    
+let candidateGesture = "";
+let candidateCount = 0;
+const REQUIRED_FRAMES = 8;
 
 
 /* START AI */
@@ -1062,8 +1066,22 @@ function handleGesture(
 ) {
 
     if (confidence < 0.70) {
-        return;
-    }
+    candidateGesture = "";
+    candidateCount = 0;
+    return;
+}
+
+if (gesture !== candidateGesture) {
+    candidateGesture = gesture;
+    candidateCount = 1;
+    return;
+}
+
+candidateCount++;
+
+if (candidateCount < REQUIRED_FRAMES) {
+    return;
+}
 
     const video =
         document.getElementById(
@@ -1095,6 +1113,8 @@ function handleGesture(
 
     lastActionTime =
         now;
+    
+    candidateCount = 0;
 
 
     const g =
