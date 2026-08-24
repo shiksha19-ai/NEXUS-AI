@@ -684,10 +684,12 @@ let running = false;
 
 let lastGesture = "";
 let lastActionTime = 0;
-    
+
 let candidateGesture = "";
 let candidateCount = 0;
 const REQUIRED_FRAMES = 8;
+
+let commandLocked = false;
 
 
 /* START AI */
@@ -798,22 +800,26 @@ function onResults(results) {
     const bar =
         document.getElementById("confidence-bar");
 
-    if (
-        !results.multiHandLandmarks ||
-        results.multiHandLandmarks.length === 0
-    ) {
+   if (
+    !results.multiHandLandmarks ||
+    results.multiHandLandmarks.length === 0
+) {
 
-        prediction.innerText =
-            "No hand detected";
+    prediction.innerText =
+        "No hand detected";
 
-        confidence.innerText =
-            "0%";
+    confidence.innerText =
+        "0%";
 
-        bar.style.width =
-            "0%";
+    bar.style.width =
+        "0%";
 
-        return;
-    }
+    candidateGesture = "";
+    candidateCount = 0;
+    commandLocked = false;
+
+    return;
+}
 
     const landmarks =
         results.multiHandLandmarks[0];
@@ -948,12 +954,12 @@ function recognizeGesture(lm) {
        Four fingers extended.
     */
 
-    if (
+   if (
+    thumbExtended &&
     indexExtended &&
     middleExtended &&
     ringExtended &&
-    pinkyExtended &&
-    thumbExtended
+    pinkyExtended
 ) {
 
     return {
@@ -987,50 +993,40 @@ function recognizeGesture(lm) {
        THUMBS UP
     */
 
-    if (
-        thumbExtended &&
-        !indexExtended &&
-        !middleExtended &&
-        !ringExtended &&
-        !pinkyExtended
-    ) {
+   if (
+    thumbExtended &&
+    !indexExtended &&
+    !middleExtended &&
+    !ringExtended &&
+    !pinkyExtended
+) {
 
-        if (
-            thumbTip.y <
-            wrist.y - 0.05
-        ) {
+    const thumbVertical =
+        wrist.y - thumbTip.y;
 
-            return {
-                name: "Thumbs Up",
-                confidence: 0.92
-            };
-        }
+    if (thumbVertical > 0.10) {
+
+        return {
+            name: "Thumbs Up",
+            confidence: 0.95
+        };
     }
+
+    if (thumbVertical < -0.10) {
+
+        return {
+            name: "Thumbs Down",
+            confidence: 0.95
+        };
+    }
+} 
 
 
     /*
        THUMBS DOWN
     */
 
-    if (
-        thumbExtended &&
-        !indexExtended &&
-        !middleExtended &&
-        !ringExtended &&
-        !pinkyExtended
-    ) {
-
-        if (
-            thumbTip.y >
-            wrist.y + 0.05
-        ) {
-
-            return {
-                name: "Thumbs Down",
-                confidence: 0.92
-            };
-        }
-    }
+    
 
 
     /*
@@ -1069,6 +1065,10 @@ function handleGesture(
     if (confidence < 0.70) {
     candidateGesture = "";
     candidateCount = 0;
+    return;
+}
+
+if (commandLocked) {
     return;
 }
 
@@ -1161,6 +1161,8 @@ if (candidateCount < REQUIRED_FRAMES) {
     video.pause();
 
     video.currentTime = 0;
+
+    commandLocked = true;
 
     } else if (
         g.includes("thumb") &&
