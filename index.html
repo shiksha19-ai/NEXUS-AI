@@ -6,8 +6,8 @@
 
 <title>NEXUS AI | Touchless Control</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <style>
 
@@ -678,11 +678,8 @@ footer {
 
 <script>
 
-const MODEL_URL =
-    "https://teachablemachine.withgoogle.com/models/a-xH55Bso/";
-
-let model;
-let webcam;
+let hands;
+let camera;
 let running = false;
 
 let lastGesture = "";
@@ -690,7 +687,6 @@ let lastActionTime = 0;
 
 
 /* START AI */
-
 async function init() {
 
     const prediction =
@@ -705,56 +701,57 @@ async function init() {
     const waiting =
         document.getElementById("waiting-text");
 
-
     prediction.innerText = "Loading AI...";
-
     confidence.innerText = "0%";
-
-    status.innerText = "Loading model...";
-
+    status.innerText = "Loading hand detector...";
 
     try {
 
-        const modelURL =
-            MODEL_URL + "model.json";
+        hands = new Hands({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }
+        });
 
-        const metadataURL =
-            MODEL_URL + "metadata.json";
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.65,
+            minTrackingConfidence: 0.65
+        });
 
+        hands.onResults(onResults);
 
-        model = await tmImage.load(
-            modelURL,
-            metadataURL
-        );
+        const video = document.createElement("video");
 
-
-        status.innerText =
-            "Requesting camera...";
-
-
-        webcam =
-            new tmImage.Webcam(
-                400,
-                300,
-                true
-            );
-
-
-        await webcam.setup();
-
-        await webcam.play();
-
-
-        waiting.remove();
-
+        video.setAttribute("autoplay", "");
+        video.setAttribute("playsinline", "");
+        video.style.width = "100%";
+        video.style.maxWidth = "400px";
+        video.style.borderRadius = "14px";
+        video.style.display = "block";
 
         document
             .getElementById("webcam-container")
-            .appendChild(webcam.canvas);
+            .innerHTML = "";
 
+        document
+            .getElementById("webcam-container")
+            .appendChild(video);
+
+        camera = new Camera(video, {
+            onFrame: async () => {
+                await hands.send({
+                    image: video
+                });
+            },
+            width: 400,
+            height: 300
+        });
+
+        await camera.start();
 
         running = true;
-
 
         status.innerText =
             "AI SYSTEM ONLINE";
@@ -762,147 +759,323 @@ async function init() {
         prediction.innerText =
             "Show a gesture";
 
-
-        window.requestAnimationFrame(loop);
-
-
     } catch (error) {
 
         console.error(error);
 
-
         status.innerText =
             "SYSTEM ERROR";
-
 
         prediction.innerText =
             "Camera / AI error";
 
-
         confidence.innerText =
             error.message;
-
 
         alert(
             "NEXUS could not start.\n\n" +
             error.message +
             "\n\nPlease allow camera access and try again."
         );
-
     }
-
 }
 
 
-/* MAIN LOOP */
+/* HAND LANDMARK RESULTS */
+function onResults(results) {
 
-async function loop() {
+    const prediction =
+        document.getElementById("prediction");
 
-    if (!running) {
+    const confidence =
+        document.getElementById("confidence");
+
+    const bar =
+        document.getElementById("confidence-bar");
+
+    if (
+        !results.multiHandLandmarks ||
+        results.multiHandLandmarks.length === 0
+    ) {
+
+        prediction.innerText =
+            "No hand detected";
+
+        confidence.innerText =
+            "0%";
+
+        bar.style.width =
+            "0%";
+
         return;
     }
 
+    const landmarks =
+        results.multiHandLandmarks[0];
 
-    webcam.update();
+    const gesture =
+        recognizeGesture(landmarks);
 
+    if (!gesture) {
 
-    await predict();
+        prediction.innerText =
+            "Unknown gesture";
 
+        confidence.innerText =
+            "0%";
 
-    window.requestAnimationFrame(loop);
+        bar.style.width =
+            "0%";
 
-}
-
-
-/* AI PREDICTION */
-
-async function predict() {
-
-    const predictions =
-        await model.predict(
-            webcam.canvas
-        );
-
-
-    let best =
-        predictions[0];
-
-
-    for (
-        let i = 1;
-        i < predictions.length;
-        i++
-    ) {
-
-        if (
-            predictions[i].probability >
-            best.probability
-        ) {
-
-            best =
-                predictions[i];
-
-        }
-
+        return;
     }
 
-
     const name =
-        best.className.trim();
-
+        gesture.name;
 
     const probability =
-        best.probability;
+        gesture.confidence;
 
-
-    document
-        .getElementById("prediction")
-        .innerText =
+    prediction.innerText =
         name;
 
-
     const percentage =
-        Math.round(
-            probability * 100
-        );
+        Math.round(probability * 100);
 
-
-    document
-        .getElementById("confidence")
-        .innerText =
+    confidence.innerText =
         percentage + "%";
 
-
-    document
-        .getElementById("confidence-bar")
-        .style.width =
+    bar.style.width =
         percentage + "%";
-
 
     handleGesture(
         name,
         probability
     );
+}
 
+
+/* DISTANCE BETWEEN TWO LANDMARKS */
+function distance(a, b) {
+
+    const x =
+        a.x - b.x;
+
+    const y =
+        a.y - b.y;
+
+    return Math.sqrt(
+        x * x + y * y
+    );
+}
+
+
+/* GESTURE RECOGNITION */
+function recognizeGesture(lm) {
+
+    /*
+       MediaPipe hand landmarks:
+
+       0  = wrist
+
+       Thumb:
+       1,2,3,4
+
+       Index:
+       5,6,7,8
+
+       Middle:
+       9,10,11,12
+
+       Ring:
+       13,14,15,16
+
+       Pinky:
+       17,18,19,20
+    */
+
+    const wrist = lm[0];
+
+    const thumbTip = lm[4];
+    const thumbIP = lm[3];
+
+    const indexTip = lm[8];
+    const indexPIP = lm[6];
+
+    const middleTip = lm[12];
+    const middlePIP = lm[10];
+
+    const ringTip = lm[16];
+    const ringPIP = lm[14];
+
+    const pinkyTip = lm[20];
+    const pinkyPIP = lm[18];
+
+
+    /*
+       Finger extension is estimated
+       using distance from the wrist.
+    */
+
+    const thumbExtended =
+        distance(thumbTip, wrist) >
+        distance(thumbIP, wrist) * 1.15;
+
+    const indexExtended =
+        distance(indexTip, wrist) >
+        distance(indexPIP, wrist) * 1.12;
+
+    const middleExtended =
+        distance(middleTip, wrist) >
+        distance(middlePIP, wrist) * 1.12;
+
+    const ringExtended =
+        distance(ringTip, wrist) >
+        distance(ringPIP, wrist) * 1.12;
+
+    const pinkyExtended =
+        distance(pinkyTip, wrist) >
+        distance(pinkyPIP, wrist) * 1.12;
+
+
+    /*
+       OPEN PALM
+       Four fingers extended.
+    */
+
+    if (
+        indexExtended &&
+        middleExtended &&
+        ringExtended &&
+        pinkyExtended
+    ) {
+
+        return {
+            name: "Open Palm",
+            confidence: 0.95
+        };
+    }
+
+
+    /*
+       TWO FINGERS
+       Index + middle extended,
+       ring + pinky folded.
+    */
+
+    if (
+        indexExtended &&
+        middleExtended &&
+        !ringExtended &&
+        !pinkyExtended
+    ) {
+
+        return {
+            name: "Two Fingers",
+            confidence: 0.95
+        };
+    }
+
+
+    /*
+       THUMBS UP
+    */
+
+    if (
+        thumbExtended &&
+        !indexExtended &&
+        !middleExtended &&
+        !ringExtended &&
+        !pinkyExtended
+    ) {
+
+        if (
+            thumbTip.y <
+            wrist.y - 0.05
+        ) {
+
+            return {
+                name: "Thumbs Up",
+                confidence: 0.92
+            };
+        }
+    }
+
+
+    /*
+       THUMBS DOWN
+    */
+
+    if (
+        thumbExtended &&
+        !indexExtended &&
+        !middleExtended &&
+        !ringExtended &&
+        !pinkyExtended
+    ) {
+
+        if (
+            thumbTip.y >
+            wrist.y + 0.05
+        ) {
+
+            return {
+                name: "Thumbs Down",
+                confidence: 0.92
+            };
+        }
+    }
+
+
+    /*
+       CLOSED FIST
+       Fingers folded.
+    */
+
+    if (
+        !indexExtended &&
+        !middleExtended &&
+        !ringExtended &&
+        !pinkyExtended
+    ) {
+
+        return {
+            name: "Closed Fist",
+            confidence: 0.90
+        };
+    }
+
+
+    return null;
 }
 
 
 /* VIDEO COMMANDS */
-
-function handleGesture(gesture, confidence) {
+function handleGesture(
+    gesture,
+    confidence
+) {
 
     if (confidence < 0.70) {
         return;
     }
 
-    const video = document.getElementById("controlled-video");
+    const video =
+        document.getElementById(
+            "controlled-video"
+        );
 
     if (!video) {
-        console.error("Video element not found.");
+        console.error(
+            "Video element not found."
+        );
         return;
     }
 
-    const now = Date.now();
+
+    const now =
+        Date.now();
+
 
     if (
         gesture === lastGesture &&
@@ -911,24 +1084,48 @@ function handleGesture(gesture, confidence) {
         return;
     }
 
-    lastGesture = gesture;
-    lastActionTime = now;
 
-    const g = gesture
-        .trim()
-        .toLowerCase();
+    lastGesture =
+        gesture;
 
-    console.log("GESTURE:", g, "CONFIDENCE:", confidence);
+    lastActionTime =
+        now;
 
-    if (g.includes("open") && g.includes("palm")) {
+
+    const g =
+        gesture
+            .trim()
+            .toLowerCase();
+
+
+    console.log(
+        "GESTURE:",
+        g,
+        "CONFIDENCE:",
+        confidence
+    );
+
+
+    if (
+        g.includes("open") &&
+        g.includes("palm")
+    ) {
 
         if (video.paused) {
-            video.play().catch(error => {
-                console.log("Play blocked:", error);
-            });
+
+            video.play()
+                .catch(error => {
+                    console.log(
+                        "Play blocked:",
+                        error
+                    );
+                });
+
         } else {
+
             video.pause();
         }
+
 
     } else if (
         g.includes("closed") &&
@@ -936,41 +1133,48 @@ function handleGesture(gesture, confidence) {
     ) {
 
         video.pause();
-        video.currentTime = 0;
+
+        video.currentTime =
+            0;
+
 
     } else if (
         g.includes("thumb") &&
         g.includes("up")
     ) {
 
-        video.volume = Math.min(
-            1,
-            video.volume + 0.1
-        );
+        video.volume =
+            Math.min(
+                1,
+                video.volume + 0.1
+            );
+
 
     } else if (
         g.includes("thumb") &&
         g.includes("down")
     ) {
 
-        video.volume = Math.max(
-            0,
-            video.volume - 0.1
-        );
+        video.volume =
+            Math.max(
+                0,
+                video.volume - 0.1
+            );
+
 
     } else if (
         g.includes("two") &&
         g.includes("finger")
     ) {
 
-        video.currentTime = Math.min(
-            video.duration || 
-Infinity,
-            video.currentTime + 5
-        );
+        video.currentTime =
+            Math.min(
+                video.duration ||
+                Infinity,
+                video.currentTime + 5
+            );
     }
 }
-
 
 </script>
 
